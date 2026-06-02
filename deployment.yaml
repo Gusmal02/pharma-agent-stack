@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pharma-agent-deployment
+  labels:
+    app: pharma-bot
+spec:
+  replicas: 1  # Al ser un agente CLI interactivo con DB SQLite local, dejamos 1 réplica para evitar colisiones
+  selector:
+    matchLabels:
+      app: pharma-bot
+  template:
+    metadata:
+      labels:
+        app: pharma-bot
+    spec:
+      containers:
+      - name: pharma-agent-container
+        image: gualmava/pharma-agent:latest # Aquí iría tu usuario de Docker Hub o registro
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: OLLAMA_BASE_URL
+          value: "http://192.168.1.XX:11434" # Aquí se apuntaría a la IP del nodo que tenga Ollama o un servicio externo
+        - name: MODEL_NAME
+          value: "qwen2.5-coder:7b-instruct-q4_K_M"
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi

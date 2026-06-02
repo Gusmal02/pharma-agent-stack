@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  pharma-agent:
+    build: .
+    container_name: pharma_agent_app
+    volumes:
+      - ./pharma.db:/app/pharma.db  # Mapea la base de datos para persistencia
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434  # Conexión con Ollama en Windows
+      - MODEL_NAME=qwen2.5-coder:1.5b-instruct-q4_K_M      # Cambiado a 1.5b para evitar fallos de memoria (4.3 GiB)
+    # Reemplazamos el modo interactivo por la ejecución del servidor web Uvicorn
+    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000 --reload
+    network_mode: "host" # Mantiene la comunicación directa con tu host y Ollama
