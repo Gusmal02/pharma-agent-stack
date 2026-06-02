@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
+
 
 class Medicamento(Base):
     __tablename__ = "medicamentos"
@@ -14,6 +15,8 @@ class Medicamento(Base):
     requiere_receta = Column(Boolean, default=False)
 
     recetas = relationship("RecetaDigital", back_populates="medicamento")
+    ventas = relationship("VentaHistorica", back_populates="medicamento")
+
 
 class RecetaDigital(Base):
     __tablename__ = "recetas_digitales"
@@ -26,3 +29,21 @@ class RecetaDigital(Base):
 
     medicamento_id = Column(Integer, ForeignKey("medicamentos.id"), nullable=False)
     medicamento = relationship("Medicamento", back_populates="recetas")
+
+
+class VentaHistorica(Base):
+    """
+    Registro diario de unidades vendidas por medicamento.
+    precio_unitario_en_venta captura el precio real al momento de la venta,
+    que puede diferir del precio actual en el catálogo (descuentos, ajustes).
+    Esto permite calcular revenue proyectado y margen real.
+    """
+    __tablename__ = "ventas_historicas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    medicamento_id = Column(Integer, ForeignKey("medicamentos.id"), nullable=False)
+    fecha = Column(Date, nullable=False, index=True)
+    unidades_vendidas = Column(Integer, nullable=False)
+    precio_unitario_en_venta = Column(Float, nullable=False)
+
+    medicamento = relationship("Medicamento", back_populates="ventas")
