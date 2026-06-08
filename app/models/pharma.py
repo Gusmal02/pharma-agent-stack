@@ -1,3 +1,4 @@
+# app/models/pharma.py
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -32,12 +33,6 @@ class RecetaDigital(Base):
 
 
 class VentaHistorica(Base):
-    """
-    Registro diario de unidades vendidas por medicamento.
-    precio_unitario_en_venta captura el precio real al momento de la venta,
-    que puede diferir del precio actual en el catálogo (descuentos, ajustes).
-    Esto permite calcular revenue proyectado y margen real.
-    """
     __tablename__ = "ventas_historicas"
 
     id = Column(Integer, primary_key=True, index=True)
