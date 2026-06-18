@@ -1,14 +1,46 @@
+# docker-compose.yml
+# Uso local con Ollama (default):     docker compose up
+# Uso con Gemini GCP:                 docker compose --profile gcp up
+
 version: '3.8'
 
 services:
+
+  # ── Servicio principal — Ollama local (default) ───────────────────────────
   pharma-agent:
     build: .
     container_name: pharma_agent_app
+    profiles: ["local", "default"]
+    ports:
+      - "8080:8080"
     volumes:
-      - ./pharma.db:/app/pharma.db  # Mapea la base de datos para persistencia
+      - ./pharma.db:/app/pharma.db
     environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434  # Conexión con Ollama en Windows
-      - MODEL_NAME=qwen2.5-coder:1.5b-instruct-q4_K_M      # Cambiado a 1.5b para evitar fallos de memoria (4.3 GiB)
-    # Reemplazamos el modo interactivo por la ejecución del servidor web Uvicorn
-    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000 --reload
-    network_mode: "host" # Mantiene la comunicación directa con tu host y Ollama
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - MODEL_NAME=qwen2.5-coder:1.5b-instruct-q4_K_M
+      - PORT=8080
+    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8080
+    restart: unless-stopped
+
+  # ── Servicio GCP — Gemini + Vertex AI ────────────────────────────────────
+  pharma-agent-gcp:
+    build: .
+    container_name: pharma_agent_gcp
+    profiles: ["gcp"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./pharma.db:/app/pharma.db
+      # Credenciales de GCP montadas desde tu máquina local
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-~/.config/gcloud/application_default_credentials.json}:/app/gcp-credentials.json:ro
+    environment:
+      - PORT=8080
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_REGION=${GCP_REGION:-us-central1}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
+      - VERTEX_INDEX_ID=${VERTEX_INDEX_ID:-}
+      - VERTEX_ENDPOINT_ID=${VERTEX_ENDPOINT_ID:-}
+    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8080
+    restart: unless-stopped

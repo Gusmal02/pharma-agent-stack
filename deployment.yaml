@@ -1,34 +1,55 @@
-apiVersion: apps/v1
-kind: Deployment
+# deployment-cloudrun.yaml
+# Despliegue en Google Cloud Run
+# Comando para desplegar:
+# gcloud run services replace deployment-cloudrun.yaml --region=us-central1
+
+apiVersion: serving.knative.dev/v1
+kind: Service
 metadata:
-  name: pharma-agent-deployment
-  labels:
-    app: pharma-bot
+  name: pharma-agent
+  annotations:
+    run.googleapis.com/ingress: all
 spec:
-  replicas: 1  # Al ser un agente CLI interactivo con DB SQLite local, dejamos 1 réplica para evitar colisiones
-  selector:
-    matchLabels:
-      app: pharma-bot
   template:
     metadata:
-      labels:
-        app: pharma-bot
+      annotations:
+        # Escala a cero cuando no hay tráfico — ahorra créditos GCP
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"
+        # Tiempo máximo de respuesta del agente
+        run.googleapis.com/execution-environment: gen2
     spec:
+      # Usuario no-root consistente con el Dockerfile
+      serviceAccountName: pharma-agent-sa
+      timeoutSeconds: 60
       containers:
-      - name: pharma-agent-container
-        image: gualmava/pharma-agent:latest # Aquí iría tu usuario de Docker Hub o registro
-        imagePullPolicy: IfNotPresent
+      - image: gcr.io/TU_PROJECT_ID/pharma-agent:latest
         ports:
-        - containerPort: 8000
+        - containerPort: 8080
         env:
-        - name: OLLAMA_BASE_URL
-          value: "http://192.168.1.XX:11434" # Aquí se apuntaría a la IP del nodo que tenga Ollama o un servicio externo
-        - name: MODEL_NAME
-          value: "qwen2.5-coder:7b-instruct-q4_K_M"
+        - name: GCP_PROJECT_ID
+          value: "TU_PROJECT_ID"
+        - name: GCP_REGION
+          value: "us-central1"
+        - name: GEMINI_MODEL
+          value: "gemini-1.5-flash"
+        # Secretos gestionados por Secret Manager — nunca en texto plano
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: google-api-key
+              key: latest
+        - name: VERTEX_INDEX_ID
+          valueFrom:
+            secretKeyRef:
+              name: vertex-index-id
+              key: latest
+        - name: VERTEX_ENDPOINT_ID
+          valueFrom:
+            secretKeyRef:
+              name: vertex-endpoint-id
+              key: latest
         resources:
           limits:
-            cpu: "2"
-            memory: 4Gi
-          requests:
             cpu: "1"
-            memory: 2Gi
+            memory: 512Mi

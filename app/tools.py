@@ -105,7 +105,12 @@ def consultar_manual_conocimiento(tema: str) -> str:
             f"Error: Manual no encontrado en '{RUTA_INSULINA}'. "
             f"Verifica que el archivo exista en app/knowledge/insulina.md"
         )
-    return buscar_en_vademecum(str(RUTA_INSULINA), tema)
+    return buscar_en_vademecum(
+        ruta_archivo=str(RUTA_INSULINA),
+        termino_busqueda=tema,
+        indice_id=os.getenv("VERTEX_INDEX_ID"),
+        endpoint_id=os.getenv("VERTEX_ENDPOINT_ID"),
+    )
 
 
 @tool

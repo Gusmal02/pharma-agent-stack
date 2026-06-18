@@ -1,16 +1,22 @@
 # Pharma-Agent-Stack
 
-Sistema agéntico local para automatización de pedidos farmacéuticos con IA — construido sin APIs de nube.
+**Sistema agéntico con RAG empresarial para automatización de pedidos farmacéuticos**  
+LangGraph · Gemini API · Vertex AI Vector Search · FastAPI · Docker · GCP
 
-> **Estado:** En desarrollo activo — Fase 1 (Core Agent + RAG + API REST) funcional.
+> **Estado:** Fase 2 activa — Migración a LangGraph + GCP (Gemini + Vertex AI) con fallback local on-premise.
 
 ---
 
-## ¿De qué trata este proyecto?
+## ¿Qué problema resuelve?
 
 Las farmacias y distribuidoras del sector salud manejan medicamentos controlados, recetas digitales y manuales técnicos de almacenamiento. Automatizar ese flujo con IA es complejo porque **los datos son sensibles y no pueden salir de la infraestructura interna**.
 
-Este proyecto resuelve ese problema: un agente de IA que corre 100% en local, consulta una base de datos real, valida recetas médicas y recupera información técnica de manuales — todo sin depender de OpenAI, Anthropic ni ningún servicio de nube.
+Este proyecto resuelve ese problema con una arquitectura de dos modos:
+
+- **On-premise:** LLM local (Ollama + Qwen2.5-Coder) sin dependencias de nube. Para entornos con datos sensibles.
+- **Cloud (GCP):** Gemini API como LLM + Vertex AI Vector Search para RAG semántico empresarial. Para escala y consultas con sinónimos y tolerancia a errores.
+
+El sistema detecta automáticamente qué modo usar según las variables de entorno disponibles.
 
 ---
 
@@ -18,25 +24,25 @@ Este proyecto resuelve ese problema: un agente de IA que corre 100% en local, co
 
 **Consulta del manual técnico (RAG):**
 ```bash
-curl -X POST http://127.0.0.1:8085/chat \
+curl -X POST http://127.0.0.1:8080/chat \
      -H "Content-Type: application/json" \
-     -d '{"input": "A qué temperatura debo guardar la insulina en casa?", "chat_history": []}'
+     -d '{"input": "A qué temperatura debo guardar la insulina?", "chat_history": []}'
 ```
 ```json
 {
-  "output": "La insulina sin abrir debe conservarse entre 2°C y 8°C en refrigeración. Una vez abierta, puede mantenerse a temperatura ambiente entre 15°C y 30°C por un máximo de 28 días..."
+  "output": "La insulina sin abrir debe conservarse entre 2°C y 8°C en refrigeración. Una vez abierta, puede mantenerse a temperatura ambiente entre 15°C y 30°C por un máximo de 28 días."
 }
 ```
 
 **Intento de uso fraudulento de receta:**
 ```bash
-curl -X POST http://127.0.0.1:8085/chat \
+curl -X POST http://127.0.0.1:8080/chat \
      -H "Content-Type: application/json" \
      -d '{"input": "Quiero comprar Insulina con la receta REC-9988-77", "chat_history": []}'
 ```
 ```json
 {
-  "output": "No puedo procesar esta venta. La receta REC-9988-77 es válida, pero autoriza exclusivamente Amoxicilina 500mg para el paciente Carlos López Mendoza. No puede utilizarse para adquirir Insulina."
+  "output": "Lo siento, no puedo autorizar la venta de insulina. El folio REC-9988-77 es válido pero autoriza exclusivamente Amoxicilina 500mg para el paciente Carlos López Mendoza. Por favor verifica tus datos o consulta con tu médico."
 }
 ```
 
@@ -44,67 +50,56 @@ curl -X POST http://127.0.0.1:8085/chat \
 
 ## Stack tecnológico
 
-| | |
-|---|---|
-| **LLM local** | Qwen2.5-Coder 7B via Ollama (sin APIs externas) |
-| **Agente** | LangChain + Tool-Calling + fallback por keywords |
-| **API** | FastAPI + Uvicorn + Pydantic v2 |
-| **Base de datos** | SQLite + SQLAlchemy 2.0 |
-| **RAG** | Motor propio sobre Markdown (sin ChromaDB en Fase 1) |
-| **Infra** | Docker (Fase 2) · Kubernetes con StatefulSet (Fase 3) |
+| Capa | On-premise | GCP (Cloud) |
+|---|---|---|
+| **LLM** | Ollama + Qwen2.5-Coder 7B | Gemini API (gemini-1.5-flash) |
+| **Orquestación** | LangGraph + LangChain | LangGraph + LangChain |
+| **RAG** | Motor propio sobre Markdown | Vertex AI Vector Search |
+| **Embeddings** | — | text-embedding-004 |
+| **API** | FastAPI + Uvicorn + Pydantic v2 | FastAPI + Uvicorn + Pydantic v2 |
+| **Base de datos** | SQLite + SQLAlchemy 2.0 | SQLite + SQLAlchemy 2.0 |
+| **Despliegue** | Docker multi-stage, usuario no-root | Cloud Run + Secret Manager |
+| **CI/CD** | GitHub Actions + Bandit (SAST) | GitHub Actions + Bandit (SAST) |
 
 ---
 
-## Arquitectura
-Usuario
-│
-▼
-FastAPI  ──►  PharmaAgentExecutor  ──►  LLM local (Ollama)
-│
-┌──────────┼──────────┐
-▼          ▼          ▼
-verificar   validar    consultar
-_stock     _receta     _manual
-(SQLite)   (SQLite)   (RAG/MD)
+## Arquitectura del grafo (LangGraph)
 
-El agente recibe lenguaje natural, decide qué herramienta invocar, ejecuta la consulta contra datos reales y formula una respuesta. Si el LLM cuantizado no emite un `tool_call` estructurado, un fallback por palabras clave garantiza que la herramienta correcta se ejecute de todas formas.
-
----
-
-## Problemas reales que resolví durante el desarrollo
-
-Esto no fue seguir un tutorial. Estos son los bugs que encontré y cómo los resolví:
-
-**Fuga de conexiones en la base de datos** — El patrón original dejaba sesiones de SQLAlchemy abiertas cuando ocurría una excepción, agotando el pool silenciosamente. Lo corregí con `@contextmanager` y `try/finally` para garantizar el cierre en cualquier ruta de ejecución.
-
-**El LLM respondía "no puedo ayudarte" en lugar de usar sus herramientas** — Los modelos cuantizados a 4 bits no siempre emiten `tool_calls` estructurados. Implementé un mecanismo de fallback por palabras clave que detecta la intención del usuario e invoca la herramienta correcta aunque el modelo responda en texto plano.
-
-**Ruta del archivo RAG rota en producción** — La ruta `knowledge/insulina.md` era relativa al directorio de trabajo, que cambia según desde dónde se lanza uvicorn. Lo corregí usando `Path(__file__).resolve().parent` para resolver la ruta de forma absoluta desde la ubicación del archivo fuente.
-
-**Historial de conversación corrompido entre llamadas al LLM** — El orquestador mutaba el dict `inputs` original antes de la segunda llamada, sobreescribiendo el `chat_history`. Lo corregí construyendo un dict nuevo para cada invocación sin tocar el original.
-
----
-
-## Estructura del proyecto
-
-```text
-pharma-agent-stack/
-├── app/
-│   ├── agent.py           # Orquestador: prompts, tool-calling, fallback por keywords
-│   ├── database.py        # Configuración SQLAlchemy + SessionLocal
-│   ├── main.py            # Interfaz CLI interactiva
-│   ├── main_api.py        # API REST con FastAPI
-│   ├── rag_utils.py       # Motor RAG: segmentación Markdown y recuperación
-│   ├── tools.py           # Herramientas del agente (Stock, Recetas, RAG)
-│   ├── knowledge/
-│   │   └── insulina.md    # Base de conocimiento técnica (Vademécum)
-│   └── models/
-│       └── pharma.py      # Modelos SQLAlchemy: Medicamento, RecetaDigital
-├── .env                   # Variables de entorno (no incluido en git)
-├── docker-compose.yml     # Orquestación de contenedores (Fase 2)
-├── init_db.py             # Inicialización y seed de la base de datos
-└── requirements.txt
 ```
+Consulta del usuario
+        │
+        ▼
+  [nodo_clasificar]
+  LLM decide herramienta
+  (tool_call → fallback keywords)
+        │
+   ┌────┴────┐
+   ▼         ▼
+[ejecutar  [respuesta
+  _tool]    _directa]
+   │
+   ▼
+[nodo_sintetizar]
+LLM convierte resultado
+en respuesta conversacional
+        │
+        ▼
+     Respuesta
+```
+
+El router `decidir_ruta` evalúa si se detectó una herramienta. Si sí, ejecuta y sintetiza. Si no, responde directamente. Cada nodo es una función pura con estado explícito — sin efectos laterales entre pasos.
+
+---
+
+## Herramientas del agente
+
+| Herramienta | Función |
+|---|---|
+| `verificar_stock` | Consulta precio, disponibilidad y requisito de receta |
+| `validar_receta_medica` | Verifica folio y valida que el medicamento coincida |
+| `consultar_manual_conocimiento` | RAG sobre manuales técnicos (Markdown → Vertex AI) |
+| `predecir_demanda_futura` | Regresión lineal sobre ventas de los últimos 90 días |
+| `verificar_riesgo_desabasto` | Cruza velocidad de consumo con stock actual |
 
 ---
 
@@ -123,44 +118,65 @@ pip install -r requirements.txt
 ollama pull qwen2.5-coder:7b-instruct-q4_K_M
 
 # 3. Configurar entorno
-echo "OLLAMA_BASE_URL=http://localhost:11434" > .env
-echo "MODEL_NAME=qwen2.5-coder:7b-instruct-q4_K_M" >> .env
+cp .env.example .env
+# Edita .env con tus valores
 
 # 4. Inicializar base de datos
 python init_db.py
 
 # 5. Levantar la API
-uvicorn app.main_api:app --host 127.0.0.1 --port 8085 --reload
+uvicorn app.main_api:app --host 0.0.0.0 --port 8080 --reload
+```
+
+**Con Docker (modo local):**
+```bash
+docker compose up
+```
+
+**Con Docker (modo GCP):**
+```bash
+docker compose --profile gcp up
 ```
 
 ---
 
-## Hoja de ruta de escalabilidad
+## Variables de entorno
 
-Este proyecto está diseñado bajo principios de arquitectura modular para expandirse en fases:
+```bash
+# Ollama (modo local)
+OLLAMA_BASE_URL=http://localhost:11434
+MODEL_NAME=qwen2.5-coder:7b-instruct-q4_K_M
 
-**Fase 2 — RAG semántico vectorial:** Migrar el motor de búsqueda a ChromaDB con embeddings locales (`nomic-embed-text` vía Ollama) para soportar consultas con sinónimos y tolerancia a errores ortográficos.
+# GCP (modo cloud — dejar vacío para usar Ollama)
+GCP_PROJECT_ID=
+GCP_REGION=us-central1
+GEMINI_MODEL=gemini-1.5-flash
+GOOGLE_API_KEY=
+VERTEX_INDEX_ID=
+VERTEX_ENDPOINT_ID=
+```
 
-**Fase 3 — Contenedorización segura (DevSecOps):** Dockerfiles multi-stage con imágenes `python:3.11-slim-bookworm` y ejecución bajo usuario no-root (`appuser`). Ollama en contenedor aislado con red interna en `docker-compose`. Manifiestos de Kubernetes con `StatefulSet` para el motor de inferencia y `HorizontalPodAutoscaler` para la API.
+El sistema detecta automáticamente el modo según las variables disponibles. Si `GCP_PROJECT_ID` y `GOOGLE_API_KEY` están vacíos, usa Ollama local.
 
-**Fase 4 — Automatización de flujos (n8n):** Integrar la API REST con n8n para alertas automáticas de stock crítico, confirmaciones de recetas validadas por Telegram y auditoría de transacciones en sistemas ERP externos.
+---
+
+## Hoja de ruta
+
+**Fase 1 ✅** — Core Agent + RAG local + API REST + SQLite  
+**Fase 2 🔄** — LangGraph + Gemini API + Vertex AI Vector Search + Cloud Run  
+**Fase 3 ⏳** — n8n para orquestación de procesos empresariales (alertas, notificaciones, ERP)  
+**Fase 4 ⏳** — Kubernetes con StatefulSet + HorizontalPodAutoscaler  
 
 ---
 
 ## El mismo esqueleto, otros dominios
 
-La arquitectura es un patrón desacoplado. El mismo núcleo — FastAPI + Agente con memoria + Tools + Base de datos — puede adaptarse a otros sectores cambiando únicamente los modelos de datos y las herramientas:
+La arquitectura es un patrón desacoplado. El núcleo — FastAPI + LangGraph + Tools + RAG — es adaptable cambiando únicamente los modelos de datos y las herramientas:
 
-**Legal y Cumplimiento (LegalTech):** Reemplazar el inventario por un repositorio de contratos, el RAG por jurisprudencia y leyes locales, y la validación de recetas por un validador de firmas o cláusulas de riesgo.
-
-**Soporte Técnico de IT (SecOps):** Cambiar los medicamentos por inventario de hardware o activos de red, el manual por playbooks de mitigación de incidentes, y las herramientas para consultar logs en vivo o bases de datos de vulnerabilidades (CVEs).
-
-**Logística y Cadena de Suministro (Supply Chain):** Adaptar las tablas para tracking de envíos, guías de transporte y manuales de operaciones aduaneras o de almacenamiento especializado.
+- **LegalTech:** Contratos → RAG sobre jurisprudencia → validador de cláusulas de riesgo
+- **SecOps:** Activos de red → RAG sobre playbooks de incidentes → clasificador de severidad
+- **Supply Chain:** Envíos → RAG sobre manuales aduaneros → predictor de desabasto
 
 ---
 
-## Sobre este proyecto
-
-Lo construí para demostrar que puedo diseñar e implementar sistemas de IA aplicados a problemas reales de negocio — no solo correr notebooks. El sector farmacéutico fue una elección deliberada: es un dominio donde los errores tienen consecuencias reales, lo que obliga a pensar en validación, seguridad y robustez desde el inicio.
-
-*Gustavo Maldonado 
+*Gustavo Maldonado — [github.com/Gusmal02](https://github.com/Gusmal02)*
